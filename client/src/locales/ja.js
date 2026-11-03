@@ -409,5 +409,27 @@ export default {
     'Premier Industries': 'プレミア工業',
     'Stellar Components Ltd': 'ステラコンポーネンツ',
     'Dynamic Systems Ltd': 'ダイナミックシステムズ'
+  },
+  purchaseOrder: {
+    createTitle: '発注書を作成',
+    viewTitle: '発注書',
+    orderId: '注文ID',
+    sku: 'SKU',
+    itemName: '品目',
+    poId: '発注書ID',
+    status: 'ステータス',
+    supplier: 'サプライヤー名',
+    quantity: '数量',
+    unitCost: '単価',
+    unitCostUsd: '単価 (USD)',
+    total: '合計',
+    expectedDelivery: '納品予定日',
+    createdDate: '作成日',
+    notes: '備考',
+    notesOptional: '備考 (任意)',
+    submit: '発注書を作成',
+    submitting: '作成中...',
+    loadError: '発注書の読み込みに失敗しました',
+    createError: '発注書の作成に失敗しました'
   }
 }

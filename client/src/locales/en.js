@@ -355,5 +355,27 @@ export default {
     filter: 'Filter',
     export: 'Export',
     items: 'items'
+  },
+  purchaseOrder: {
+    createTitle: 'Create Purchase Order',
+    viewTitle: 'Purchase Order',
+    orderId: 'Order ID',
+    sku: 'SKU',
+    itemName: 'Item',
+    poId: 'PO ID',
+    status: 'Status',
+    supplier: 'Supplier Name',
+    quantity: 'Quantity',
+    unitCost: 'Unit Cost',
+    unitCostUsd: 'Unit Cost (USD)',
+    total: 'Total',
+    expectedDelivery: 'Expected Delivery Date',
+    createdDate: 'Created',
+    notes: 'Notes',
+    notesOptional: 'Notes (optional)',
+    submit: 'Create Purchase Order',
+    submitting: 'Creating...',
+    loadError: 'Failed to load purchase order',
+    createError: 'Failed to create purchase order'
   }
 }
