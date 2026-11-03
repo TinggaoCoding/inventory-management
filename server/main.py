@@ -1,7 +1,8 @@
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -89,6 +90,8 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: float
+    lead_time_days: int
 
 class BacklogItem(BaseModel):
     id: str
@@ -119,6 +122,34 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockLine(BaseModel):
+    sku: str
+    # Upper bound keeps total_cost finite (an unbounded int could overflow the float total to inf)
+    quantity: int = Field(gt=0, le=1_000_000)
+
+class CreateRestockOrderRequest(BaseModel):
+    items: List[RestockLine] = Field(min_length=1, max_length=100)
+
+class RestockOrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_cost: float
+    lead_time_days: int
+
+class RestockOrder(BaseModel):
+    id: str
+    order_number: str
+    items: List[RestockOrderItem]
+    total_cost: float
+    lead_time_days: int
+    order_date: str
+    expected_delivery: str
+    status: str
+
+# ponytail: in-memory store, a server restart clears submitted restock orders; write to JSON if persistence is needed
+restock_orders: List[dict] = []
 
 # API endpoints
 @app.get("/")
@@ -178,6 +209,52 @@ def get_backlog():
         item_dict["has_purchase_order"] = has_po
         result.append(item_dict)
     return result
+
+@app.get("/api/restock-orders", response_model=List[RestockOrder])
+def get_restock_orders():
+    """Get submitted restock orders, newest first"""
+    return list(reversed(restock_orders))
+
+# async def on purpose: with no awaits inside, the handler runs on the event loop without yielding,
+# so reading len(restock_orders) for the new id and appending can't interleave with another request.
+# A plain def would run in a threadpool, where two concurrent POSTs could get the same order number.
+@app.post("/api/restock-orders", response_model=RestockOrder, status_code=201)
+async def create_restock_order(request: CreateRestockOrderRequest):
+    """Submit a restock order for items from the demand forecast"""
+    skus = [line.sku for line in request.items]
+    if len(skus) != len(set(skus)):
+        raise HTTPException(status_code=400, detail="Each SKU may appear only once per order")
+
+    forecasts_by_sku = {f["item_sku"]: f for f in demand_forecasts}
+    items = []
+    for line in request.items:
+        forecast = forecasts_by_sku.get(line.sku)
+        if not forecast:
+            raise HTTPException(status_code=400, detail=f"Unknown SKU {line.sku}")
+        # Price and lead time come from server data; the client only chooses SKUs and quantities
+        items.append({
+            "sku": line.sku,
+            "name": forecast["item_name"],
+            "quantity": line.quantity,
+            "unit_cost": forecast["unit_cost"],
+            "lead_time_days": forecast["lead_time_days"],
+        })
+
+    # The order is delivered complete, so it arrives when its slowest item does
+    lead_time = max(item["lead_time_days"] for item in items)
+    now = datetime.now().replace(microsecond=0)
+    order = {
+        "id": str(len(restock_orders) + 1),
+        "order_number": f"RST-{len(restock_orders) + 1:04d}",
+        "items": items,
+        "total_cost": round(sum(i["quantity"] * i["unit_cost"] for i in items), 2),
+        "lead_time_days": lead_time,
+        "order_date": now.isoformat(),
+        "expected_delivery": (now + timedelta(days=lead_time)).isoformat(),
+        "status": "Submitted",
+    }
+    restock_orders.append(order)
+    return order
 
 @app.get("/api/dashboard/summary")
 def get_dashboard_summary(
