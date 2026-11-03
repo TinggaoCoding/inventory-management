@@ -1,0 +1,54 @@
+{
+  "skill_name": "vue-component-analyzer",
+  "fixture": "fixtures/shop-app (sample Vue 3.4 + Pinia app with planted issues)",
+  "evals": [
+    {
+      "id": 1,
+      "name": "product-list-lag",
+      "prompt": "the products page (src/views/ProductList.vue) in my shop app at {APP} gets really laggy when i type in search or tick 'in stock', we have ~2000 products. what's wrong and how do i fix it?",
+      "expected_output": "Ranked findings explaining the lag: filtered() called in template, index keys, v-if+v-for, deep watch, plus the storeToRefs bug and leaked resize listener.",
+      "files": ["fixtures/shop-app"],
+      "assertions": [
+        "Recommends replacing the filtered() template call with a computed",
+        "Flags :key=\"i\" (index key) on the ProductRow list",
+        "Flags v-if and v-for on the same ProductRow element",
+        "Flags the deep watch on filters (visibleCount should be computed / derived)",
+        "Flags destructuring the cart store without storeToRefs as a reactivity bug",
+        "Flags the window resize listener that is never removed",
+        "Every finding cites a file:line location",
+        "Does not modify any fixture files"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "reuse-review",
+      "prompt": "Can you go through {APP}/src and tell me where we're duplicating code? I'd like to pull shared stuff into composables or shared components before the team adds more views.",
+      "expected_output": "Reuse findings: fetch/loading/error composable, merge UserCard/AdminCard, use existing useFormat, theme prop drilling.",
+      "files": ["fixtures/shop-app"],
+      "assertions": [
+        "Suggests one composable for the duplicated fetch + loading + error logic in ProductList, OrdersView and UsersView",
+        "Suggests merging UserCard and AdminCard into one component (props and/or slots)",
+        "Points to the existing useFormat composable for the duplicated Intl currency/date formatting",
+        "Flags theme being drilled through UserCard/AdminCard -> UserAvatar -> AvatarImage and suggests provide/inject or a store",
+        "Every finding cites a file:line location",
+        "Does not modify any fixture files"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "full-audit",
+      "prompt": "we're shipping shop-app ({APP}) next week, do a vue performance + reuse pass over the whole thing and tell me what to fix first",
+      "expected_output": "Whole-app ranked report with bugs first, bundle and render issues, and at least one reuse item.",
+      "files": ["fixtures/shop-app"],
+      "assertions": [
+        "Flags eagerly imported route components and suggests () => import() lazy loading",
+        "Flags full lodash and/or moment imports as bundle cost",
+        "Flags the Chart.js instance held in a deep ref and suggests shallowRef or markRaw",
+        "Flags the setInterval in SalesChart that is never cleared",
+        "Ranks correctness bugs (storeToRefs, v-if+v-for, index keys) in the highest-priority section",
+        "Includes at least one code-reuse finding",
+        "Does not modify any fixture files"
+      ]
+    }
+  ]
+}
