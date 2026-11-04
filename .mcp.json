@@ -11,10 +11,9 @@
     },
     "github": {
       "type": "stdio",
-      "command": "npx",
+      "command": "node",
       "args": [
-        "-y",
-        "@modelcontextprotocol/server-github"
+        "scripts/github-mcp.mjs"
       ],
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
