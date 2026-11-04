@@ -1,7 +1,9 @@
+import uuid
+from datetime import date, datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List, Literal, Optional
+from pydantic import BaseModel, Field
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -89,6 +91,8 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: float
+    lead_time_days: int
 
 class BacklogItem(BaseModel):
     id: str
@@ -100,6 +104,7 @@ class BacklogItem(BaseModel):
     days_delayed: int
     priority: str
     has_purchase_order: Optional[bool] = False
+    purchase_order_id: Optional[str] = None
 
 class PurchaseOrder(BaseModel):
     id: str
@@ -114,11 +119,52 @@ class PurchaseOrder(BaseModel):
 
 class CreatePurchaseOrderRequest(BaseModel):
     backlog_item_id: str
-    supplier_name: str
+    supplier_name: str = Field(min_length=1, max_length=200)
+    quantity: int = Field(gt=0, le=1_000_000)
+    unit_cost: float = Field(gt=0, le=1_000_000)
+    expected_delivery_date: date
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+class Task(BaseModel):
+    id: str
+    title: str
+    priority: Literal['high', 'medium', 'low']
+    # camelCase on purpose: TasksModal.vue and the mock tasks in useAuth.js read task.dueDate
+    dueDate: str
+    status: Literal['pending', 'completed']
+
+class CreateTaskRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    priority: Literal['high', 'medium', 'low'] = 'medium'
+    dueDate: date
+
+class RestockLine(BaseModel):
+    sku: str
+    # Upper bound keeps total_cost finite (an unbounded int could overflow the float total to inf)
+    quantity: int = Field(gt=0, le=1_000_000)
+
+class CreateRestockOrderRequest(BaseModel):
+    items: List[RestockLine] = Field(min_length=1, max_length=100)
+
+class RestockOrderItem(BaseModel):
+    sku: str
+    name: str
     quantity: int
     unit_cost: float
-    expected_delivery_date: str
-    notes: Optional[str] = None
+    lead_time_days: int
+
+class RestockOrder(BaseModel):
+    id: str
+    order_number: str
+    items: List[RestockOrderItem]
+    total_cost: float
+    lead_time_days: int
+    order_date: str
+    expected_delivery: str
+    status: str
+
+# ponytail: in-memory store, a server restart clears submitted restock orders; write to JSON if persistence is needed
+restock_orders: List[dict] = []
 
 # API endpoints
 @app.get("/")
@@ -174,10 +220,128 @@ def get_backlog():
     for item in backlog_items:
         item_dict = dict(item)
         # Check if this backlog item has a purchase order
-        has_po = any(po["backlog_item_id"] == item["id"] for po in purchase_orders)
-        item_dict["has_purchase_order"] = has_po
+        po = next((po for po in purchase_orders if po["backlog_item_id"] == item["id"]), None)
+        item_dict["has_purchase_order"] = po is not None
+        # Dashboard.vue picks "Create PO" vs "View PO" from purchase_order_id
+        item_dict["purchase_order_id"] = po["id"] if po else None
         result.append(item_dict)
     return result
+
+# ponytail: in-memory store like restock_orders; a server restart clears API-created tasks
+tasks: List[dict] = []
+
+@app.get("/api/tasks", response_model=List[Task])
+def get_tasks():
+    """Get tasks created through the API, newest first"""
+    return list(reversed(tasks))
+
+@app.post("/api/tasks", response_model=Task, status_code=201)
+async def create_task(request: CreateTaskRequest):
+    """Create a pending task"""
+    # String uuid ids: App.vue treats a task whose id matches a mock task (numeric 1, 2, ...) as local,
+    # and deletes make len()+1 ids reusable, so neither numbers nor counters by length are safe here
+    task = {
+        "id": f"task-{uuid.uuid4().hex}",
+        "title": request.title.strip(),
+        "priority": request.priority,
+        "dueDate": request.dueDate.isoformat(),
+        "status": "pending",
+    }
+    if not task["title"]:
+        raise HTTPException(status_code=400, detail="Title must not be blank")
+    tasks.append(task)
+    return task
+
+def find_task(task_id: str) -> dict:
+    task = next((t for t in tasks if t["id"] == task_id), None)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+@app.delete("/api/tasks/{task_id}")
+async def delete_task(task_id: str):
+    """Delete a task"""
+    tasks.remove(find_task(task_id))
+    return {"deleted": task_id}
+
+@app.patch("/api/tasks/{task_id}", response_model=Task)
+async def toggle_task(task_id: str):
+    """Flip a task between pending and completed"""
+    task = find_task(task_id)
+    task["status"] = "completed" if task["status"] == "pending" else "pending"
+    return task
+
+@app.post("/api/purchase-orders", response_model=PurchaseOrder, status_code=201)
+async def create_purchase_order(request: CreatePurchaseOrderRequest):
+    """Create a purchase order for a backlog item (one per item)"""
+    if not any(b["id"] == request.backlog_item_id for b in backlog_items):
+        raise HTTPException(status_code=404, detail="Backlog item not found")
+    # One PO per backlog item, because GET /api/purchase-orders/{backlog_item_id} returns a single PO
+    if any(po["backlog_item_id"] == request.backlog_item_id for po in purchase_orders):
+        raise HTTPException(status_code=409, detail="Backlog item already has a purchase order")
+    po = {
+        **request.model_dump(),
+        "id": f"PO-{uuid.uuid4().hex[:8].upper()}",
+        "expected_delivery_date": request.expected_delivery_date.isoformat(),
+        "status": "Pending",
+        "created_date": datetime.now().replace(microsecond=0).isoformat(),
+    }
+    purchase_orders.append(po)
+    return po
+
+@app.get("/api/purchase-orders/{backlog_item_id}", response_model=PurchaseOrder)
+def get_purchase_order(backlog_item_id: str):
+    """Get the purchase order for a backlog item"""
+    po = next((po for po in purchase_orders if po["backlog_item_id"] == backlog_item_id), None)
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return po
+
+@app.get("/api/restock-orders", response_model=List[RestockOrder])
+def get_restock_orders():
+    """Get submitted restock orders, newest first"""
+    return list(reversed(restock_orders))
+
+# async def on purpose: with no awaits inside, the handler runs on the event loop without yielding,
+# so reading len(restock_orders) for the new id and appending can't interleave with another request.
+# A plain def would run in a threadpool, where two concurrent POSTs could get the same order number.
+@app.post("/api/restock-orders", response_model=RestockOrder, status_code=201)
+async def create_restock_order(request: CreateRestockOrderRequest):
+    """Submit a restock order for items from the demand forecast"""
+    skus = [line.sku for line in request.items]
+    if len(skus) != len(set(skus)):
+        raise HTTPException(status_code=400, detail="Each SKU may appear only once per order")
+
+    forecasts_by_sku = {f["item_sku"]: f for f in demand_forecasts}
+    items = []
+    for line in request.items:
+        forecast = forecasts_by_sku.get(line.sku)
+        if not forecast:
+            raise HTTPException(status_code=400, detail=f"Unknown SKU {line.sku}")
+        # Price and lead time come from server data; the client only chooses SKUs and quantities
+        items.append({
+            "sku": line.sku,
+            "name": forecast["item_name"],
+            "quantity": line.quantity,
+            "unit_cost": forecast["unit_cost"],
+            "lead_time_days": forecast["lead_time_days"],
+        })
+
+    # The order is delivered complete, so it arrives when its slowest item does
+    lead_time = max(item["lead_time_days"] for item in items)
+    now = datetime.now().replace(microsecond=0)
+    order = {
+        "id": str(len(restock_orders) + 1),
+        "order_number": f"RST-{len(restock_orders) + 1:04d}",
+        "items": items,
+        "total_cost": round(sum(i["quantity"] * i["unit_cost"] for i in items), 2),
+        "lead_time_days": lead_time,
+        "order_date": now.isoformat(),
+        "expected_delivery": (now + timedelta(days=lead_time)).isoformat(),
+        "status": "Submitted",
+    }
+    restock_orders.append(order)
+    return order
 
 @app.get("/api/dashboard/summary")
 def get_dashboard_summary(

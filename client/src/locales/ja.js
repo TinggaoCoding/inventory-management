@@ -6,6 +6,7 @@ export default {
     orders: '注文',
     finance: '財務',
     demandForecast: '需要予測',
+    restocking: '補充発注',
     companyName: '触媒コンポーネンツ',
     subtitle: '在庫管理システム'
   },
@@ -112,7 +113,11 @@ export default {
     onTimeDelivery: '定時配達',
     itemsCount: '{count}件',
     quantity: '数量',
+    submittedOrders: '発注済み注文',
+    days: '{n}日',
     table: {
+      leadTime: 'リードタイム',
+      totalCost: '合計コスト',
       orderNumber: '注文番号',
       orderId: '注文ID',
       orderDate: '注文日',
@@ -188,6 +193,31 @@ export default {
     }
   },
 
+  // Restocking
+  restocking: {
+    title: '補充発注',
+    description: '需要増加を優先し、予算内で収まる補充発注を提案します',
+    budget: '予算',
+    recommendedTotal: '推奨合計',
+    remaining: '残予算',
+    itemsSelected: '選択品目数',
+    recommendedItems: '推奨品目',
+    empty: '現在の予算に収まる品目はありません。予算を増やしてください。',
+    placeOrder: '発注する',
+    placing: '発注中...',
+    orderPlaced: '注文 {orderNumber} を送信しました。',
+    viewOrders: '注文を表示',
+    table: {
+      sku: 'SKU',
+      itemName: '品目名',
+      trend: 'トレンド',
+      quantity: '数量',
+      unitCost: '単価',
+      lineCost: '明細金額',
+      leadTime: 'リードタイム(日)'
+    }
+  },
+
   // Filters
   filters: {
     timePeriod: '期間',
@@ -204,6 +234,7 @@ export default {
     shipped: '出荷済み',
     processing: '処理中',
     backordered: 'バックオーダー',
+    submitted: '送信済み',
     inStock: '在庫あり',
     lowStock: '在庫僅少',
     adequate: '適量'
@@ -378,5 +409,27 @@ export default {
     'Premier Industries': 'プレミア工業',
     'Stellar Components Ltd': 'ステラコンポーネンツ',
     'Dynamic Systems Ltd': 'ダイナミックシステムズ'
+  },
+  purchaseOrder: {
+    createTitle: '発注書を作成',
+    viewTitle: '発注書',
+    orderId: '注文ID',
+    sku: 'SKU',
+    itemName: '品目',
+    poId: '発注書ID',
+    status: 'ステータス',
+    supplier: 'サプライヤー名',
+    quantity: '数量',
+    unitCost: '単価',
+    unitCostUsd: '単価 (USD)',
+    total: '合計',
+    expectedDelivery: '納品予定日',
+    createdDate: '作成日',
+    notes: '備考',
+    notesOptional: '備考 (任意)',
+    submit: '発注書を作成',
+    submitting: '作成中...',
+    loadError: '発注書の読み込みに失敗しました',
+    createError: '発注書の作成に失敗しました'
   }
 }
